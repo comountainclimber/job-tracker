@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useOptimistic, useState } from "react";
+import { startTransition, useEffect, useOptimistic, useState } from "react";
 import {
   closestCorners,
   DndContext,
@@ -39,6 +39,44 @@ function isStage(value: unknown): value is Stage {
   );
 }
 
+function groupByStage(apps: Application[]) {
+  const byStage = Object.fromEntries(
+    STAGES.map((stage) => [stage, [] as Application[]]),
+  ) as Record<Stage, Application[]>;
+
+  for (const app of apps) {
+    byStage[app.stage].push(app);
+  }
+
+  return byStage;
+}
+
+function BoardColumns({
+  columns,
+  byStage,
+  onSelect,
+  enableDnd,
+}: {
+  columns: Stage[];
+  byStage: Record<Stage, Application[]>;
+  onSelect: (app: Application) => void;
+  enableDnd: boolean;
+}) {
+  return (
+    <div className="flex h-full min-h-0 w-full gap-3 overflow-x-auto bg-background text-foreground">
+      {columns.map((stage) => (
+        <KanbanColumn
+          key={stage}
+          stage={stage}
+          applications={byStage[stage]}
+          onSelect={onSelect}
+          enableDnd={enableDnd}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function KanbanBoard({
   applications,
   onSelect,
@@ -48,6 +86,11 @@ export function KanbanBoard({
   onSelect: (app: Application) => void;
   showArchivedColumns?: boolean;
 }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -67,14 +110,7 @@ export function KanbanBoard({
     ? [...PIPELINE_STAGES, ...HIDDEN_BY_DEFAULT_STAGES]
     : PIPELINE_STAGES;
 
-  const byStage = Object.fromEntries(
-    STAGES.map((stage) => [stage, [] as Application[]]),
-  ) as Record<Stage, Application[]>;
-
-  for (const app of optimisticApps) {
-    byStage[app.stage].push(app);
-  }
-
+  const byStage = groupByStage(optimisticApps);
   const activeApp =
     activeId === null
       ? undefined
@@ -108,24 +144,33 @@ export function KanbanBoard({
     });
   }
 
+  // dnd-kit generates incrementing aria IDs; skip it on the server so hydration matches.
+  if (!mounted) {
+    return (
+      <BoardColumns
+        columns={columns}
+        byStage={byStage}
+        onSelect={onSelect}
+        enableDnd={false}
+      />
+    );
+  }
+
   return (
     <DndContext
+      id="job-tracker-board"
       sensors={sensors}
       collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex h-full min-h-0 w-full gap-3 overflow-x-auto bg-background text-foreground">
-        {columns.map((stage) => (
-          <KanbanColumn
-            key={stage}
-            stage={stage}
-            applications={byStage[stage]}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
+      <BoardColumns
+        columns={columns}
+        byStage={byStage}
+        onSelect={onSelect}
+        enableDnd
+      />
       <DragOverlay dropAnimation={null}>
         {activeApp ? (
           <ApplicationCardView

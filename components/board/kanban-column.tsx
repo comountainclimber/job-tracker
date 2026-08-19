@@ -16,6 +16,32 @@ export function KanbanColumn({
   stage,
   applications,
   onSelect,
+  enableDnd = true,
+}: {
+  stage: Stage;
+  applications: Application[];
+  onSelect: (app: Application) => void;
+  enableDnd?: boolean;
+}) {
+  if (enableDnd) {
+    return (
+      <DroppableKanbanColumn
+        stage={stage}
+        applications={applications}
+        onSelect={onSelect}
+      />
+    );
+  }
+
+  return (
+    <KanbanColumnFrame stage={stage} applications={applications} onSelect={onSelect} />
+  );
+}
+
+function DroppableKanbanColumn({
+  stage,
+  applications,
+  onSelect,
 }: {
   stage: Stage;
   applications: Application[];
@@ -26,12 +52,39 @@ export function KanbanColumn({
     data: { type: "column", stage },
   });
 
+  return (
+    <KanbanColumnFrame
+      stage={stage}
+      applications={applications}
+      onSelect={onSelect}
+      enableDnd
+      columnRef={setNodeRef}
+      isOver={isOver}
+    />
+  );
+}
+
+function KanbanColumnFrame({
+  stage,
+  applications,
+  onSelect,
+  enableDnd = false,
+  columnRef,
+  isOver = false,
+}: {
+  stage: Stage;
+  applications: Application[];
+  onSelect: (app: Application) => void;
+  enableDnd?: boolean;
+  columnRef?: (node: HTMLElement | null) => void;
+  isOver?: boolean;
+}) {
   const label = STAGE_LABELS[stage];
   const isEmptyWishlist = stage === "wishlist" && applications.length === 0;
 
   return (
     <section
-      ref={setNodeRef}
+      ref={columnRef}
       aria-label={`${label}, ${applications.length}`}
       className={cn(
         "flex min-h-72 min-w-[16.5rem] flex-1 flex-col rounded-xl bg-muted/30 ring-1 ring-foreground/10",
@@ -48,6 +101,7 @@ export function KanbanColumn({
             key={application.id}
             application={application}
             onSelect={onSelect}
+            enableDnd={enableDnd}
           />
         ))}
         {isEmptyWishlist ? (

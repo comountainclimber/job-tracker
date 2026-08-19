@@ -11,6 +11,42 @@ export function daysInStage(app: Application, now = Date.now()): number {
   return Math.max(0, Math.floor((now - start) / DAY_MS));
 }
 
+function startOfLocalDay(ms: number): number {
+  const date = new Date(ms);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+export function calendarDaysUntil(target: number, now = Date.now()): number {
+  return Math.round((startOfLocalDay(target) - startOfLocalDay(now)) / DAY_MS);
+}
+
+/** Upcoming deadline on the card: next action, else wishlist apply-by. */
+export function cardDeadlineAt(app: Application): number | null {
+  if (app.nextActionAt != null) return app.nextActionAt;
+  if (app.stage === "wishlist" && app.applyBy != null) return app.applyBy;
+  return null;
+}
+
+export function cardTimingLabel(app: Application, now = Date.now()): string {
+  const deadline = cardDeadlineAt(app);
+  if (deadline == null) {
+    return `${daysInStage(app, now)}d`;
+  }
+
+  const days = calendarDaysUntil(deadline, now);
+  const time = new Date(deadline).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  if (days === 0) return `today ${time}`;
+  if (days === 1) return "tomorrow";
+  if (days === -1) return "yesterday";
+  if (days > 1) return `in ${days}d`;
+  return `${Math.abs(days)}d ago`;
+}
+
 export function isStale(app: Application, now = Date.now()): boolean {
   if (app.archived) return false;
   if (!STALE_STAGES.includes(app.stage)) return false;

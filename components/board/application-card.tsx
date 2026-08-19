@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { daysInStage, isStale } from "@/lib/attention";
+import { cardDeadlineAt, cardTimingLabel, isStale } from "@/lib/attention";
 import type { Application } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,9 @@ export function ApplicationCardView({
   className?: string;
 }) {
   const stale = isStale(application);
-  const days = daysInStage(application);
+  const timing = cardTimingLabel(application);
+  const deadline = cardDeadlineAt(application);
+  const overdue = deadline != null && deadline < Date.now();
 
   return (
     <Card
@@ -39,8 +41,19 @@ export function ApplicationCardView({
           <CardTitle className="min-w-0 truncate font-semibold">
             {application.company}
           </CardTitle>
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {days}d
+          <span
+            suppressHydrationWarning
+            title={
+              deadline
+                ? new Date(deadline).toLocaleString()
+                : "Days in this stage"
+            }
+            className={cn(
+              "shrink-0 font-mono text-xs text-muted-foreground",
+              overdue && "text-amber-600 dark:text-amber-400",
+            )}
+          >
+            {timing}
           </span>
         </div>
         <CardDescription className="truncate">{application.role}</CardDescription>
@@ -67,6 +80,31 @@ export function ApplicationCardView({
 }
 
 export function ApplicationCard({
+  application,
+  onSelect,
+  enableDnd = true,
+}: {
+  application: Application;
+  onSelect: (app: Application) => void;
+  enableDnd?: boolean;
+}) {
+  if (enableDnd) {
+    return <DraggableApplicationCard application={application} onSelect={onSelect} />;
+  }
+
+  return (
+    <button
+      type="button"
+      className="w-full cursor-pointer text-left"
+      aria-label={`${application.company} — ${application.role}`}
+      onClick={() => onSelect(application)}
+    >
+      <ApplicationCardView application={application} />
+    </button>
+  );
+}
+
+function DraggableApplicationCard({
   application,
   onSelect,
 }: {
