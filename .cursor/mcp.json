@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "job-tracker": {
+      "command": "pnpm",
+      "args": ["mcp"]
+    }
+  }
+}
+
