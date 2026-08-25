@@ -31,14 +31,59 @@ CREATE TABLE IF NOT EXISTS applications (
   notes text,
   archived integer not null default 0,
   created_at integer not null,
-  updated_at integer not null
+  updated_at integer not null,
+  notion_page_id text,
+  notion_synced_at integer,
+  notion_last_edited_time text
 );
 CREATE UNIQUE INDEX IF NOT EXISTS applications_job_url_unique ON applications(job_url) WHERE job_url IS NOT NULL;
+CREATE TABLE IF NOT EXISTS settings (
+  key text primary key,
+  value text not null
+);
 `;
+
+function columnNames(sqlite: Database.Database, table: string): Set<string> {
+  const rows = sqlite.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
+  return new Set(rows.map((row) => row.name));
+}
+
+function addColumnIfMissing(
+  sqlite: Database.Database,
+  table: string,
+  column: string,
+  ddl: string,
+) {
+  if (!columnNames(sqlite, table).has(column)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
+function migrate(sqlite: Database.Database) {
+  addColumnIfMissing(sqlite, "applications", "notion_page_id", "notion_page_id text");
+  addColumnIfMissing(
+    sqlite,
+    "applications",
+    "notion_synced_at",
+    "notion_synced_at integer",
+  );
+  addColumnIfMissing(
+    sqlite,
+    "applications",
+    "notion_last_edited_time",
+    "notion_last_edited_time text",
+  );
+  sqlite.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS applications_notion_page_id_unique ON applications(notion_page_id) WHERE notion_page_id IS NOT NULL`,
+  );
+}
 
 function bootstrap(sqlite: Database.Database) {
   sqlite.pragma("journal_mode = WAL");
   sqlite.exec(BOOTSTRAP_SQL);
+  migrate(sqlite);
 }
 
 function createDb(): AppDatabase {
@@ -60,5 +105,5 @@ function createDb(): AppDatabase {
 }
 
 export const db = createDb();
-export { applications } from "./schema";
-export type { ApplicationRow } from "./schema";
+export { applications, settings } from "./schema";
+export type { ApplicationRow, SettingRow } from "./schema";

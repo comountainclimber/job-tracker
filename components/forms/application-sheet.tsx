@@ -35,6 +35,7 @@ import {
   STAGE_LABELS,
   STAGES,
 } from "@/lib/types";
+import { notionPageUrl } from "@/lib/notion/map";
 
 const SOURCE_UNSET = "__unset__";
 
@@ -229,9 +230,20 @@ function ApplicationSheetBody({
             {form.company.trim() || application.company} —{" "}
             {form.role.trim() || application.role}
           </SheetTitle>
-          <SheetDescription className="flex items-center gap-2">
+          <SheetDescription className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{STAGE_LABELS[form.stage]}</Badge>
             Edit this application.
+            {application.notionPageId ? (
+              <a
+                href={notionPageUrl(application.notionPageId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs underline underline-offset-3"
+              >
+                Open in Notion
+                <ExternalLink className="size-3" />
+              </a>
+            ) : null}
           </SheetDescription>
         </SheetHeader>
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-4 py-3">

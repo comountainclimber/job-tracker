@@ -5,6 +5,7 @@ import { isNeedsAttention } from "./attention";
 import {
   PIPELINE_STAGES,
   type Application,
+  type ApplicationSyncRow,
   type ListApplicationsQuery,
   type Stage,
   type UpdateInput,
@@ -32,7 +33,28 @@ function toApplication(row: ApplicationRow): Application {
     archived: row.archived,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    notionPageId: row.notionPageId ?? null,
   };
+}
+
+function toSyncRow(row: ApplicationRow): ApplicationSyncRow {
+  return {
+    ...toApplication(row),
+    notionSyncedAt: row.notionSyncedAt ?? null,
+    notionLastEditedTime: row.notionLastEditedTime ?? null,
+  };
+}
+
+function emitLocalChange(type: "upsert" | "delete", application: Application) {
+  void import("./notion/sync")
+    .then((mod) =>
+      type === "delete"
+        ? mod.scheduleNotionDelete(application)
+        : mod.scheduleNotionPush(application),
+    )
+    .catch((err: unknown) => {
+      console.error("[notion]", err);
+    });
 }
 
 function trimRequired(value: string, field: string): string {
@@ -129,6 +151,56 @@ export function getApplication(id: string): Application | null {
   return row ? toApplication(row) : null;
 }
 
+export function getApplicationSyncRow(id: string): ApplicationSyncRow | null {
+  const row = db
+    .select()
+    .from(applications)
+    .where(eq(applications.id, id))
+    .get();
+  return row ? toSyncRow(row) : null;
+}
+
+export function listApplicationSyncRows(): ApplicationSyncRow[] {
+  return db.select().from(applications).all().map(toSyncRow);
+}
+
+export function getApplicationByNotionPageId(
+  pageId: string,
+): ApplicationSyncRow | null {
+  const row = db
+    .select()
+    .from(applications)
+    .where(eq(applications.notionPageId, pageId))
+    .get();
+  return row ? toSyncRow(row) : null;
+}
+
+export function getApplicationByJobUrl(jobUrl: string): ApplicationSyncRow | null {
+  const row = db
+    .select()
+    .from(applications)
+    .where(eq(applications.jobUrl, jobUrl))
+    .get();
+  return row ? toSyncRow(row) : null;
+}
+
+export function findApplicationsByCompanyRole(
+  company: string,
+  role: string,
+): ApplicationSyncRow[] {
+  return db
+    .select()
+    .from(applications)
+    .where(
+      and(
+        sql`lower(${applications.company}) = ${company.toLowerCase()}`,
+        sql`lower(${applications.role}) = ${role.toLowerCase()}`,
+      ),
+    )
+    .all()
+    .map(toSyncRow);
+}
+
 export function searchApplications(q: string): Application[] {
   const condition = searchCondition(q);
   if (!condition) return [];
@@ -182,6 +254,7 @@ export function upsertApplication(input: UpsertInput): UpsertResult {
         .returning()
         .get();
       const application = toApplication(row!);
+      emitLocalChange("upsert", application);
       return {
         application,
         created: false,
@@ -213,6 +286,7 @@ export function upsertApplication(input: UpsertInput): UpsertResult {
     .returning()
     .get();
   const application = toApplication(row!);
+  emitLocalChange("upsert", application);
   return {
     application,
     created: true,
@@ -267,7 +341,9 @@ export function updateApplication(id: string, input: UpdateInput): Application {
     .where(eq(applications.id, id))
     .returning()
     .get();
-  return toApplication(row!);
+  const application = toApplication(row!);
+  emitLocalChange("upsert", application);
+  return application;
 }
 
 export function moveApplication(id: string, stage: Stage): Application {
@@ -295,7 +371,9 @@ export function moveApplication(id: string, stage: Stage): Application {
     .where(eq(applications.id, id))
     .returning()
     .get();
-  return toApplication(row!);
+  const application = toApplication(row!);
+  emitLocalChange("upsert", application);
+  return application;
 }
 
 export function archiveApplication(
@@ -312,11 +390,146 @@ export function archiveApplication(
     .where(eq(applications.id, id))
     .returning()
     .get();
-  return toApplication(row!);
+  const application = toApplication(row!);
+  emitLocalChange("upsert", application);
+  return application;
 }
 
 export function deleteApplication(id: string): void {
+  const existing = getApplication(id);
   db.delete(applications).where(eq(applications.id, id)).run();
+  if (existing) {
+    emitLocalChange("delete", existing);
+  }
+}
+
+export function applyRemoteUpdate(
+  id: string,
+  input: UpdateInput & { archived?: boolean },
+  meta: { notionPageId: string; notionLastEditedTime: string },
+): Application {
+  requireApplication(id);
+  const now = Date.now();
+  const company =
+    input.company !== undefined
+      ? trimRequired(input.company, "company")
+      : undefined;
+  const role =
+    input.role !== undefined ? trimRequired(input.role, "role") : undefined;
+  const jobUrl = normalizeJobUrl(input.jobUrl);
+
+  const row = db
+    .update(applications)
+    .set({
+      ...(company !== undefined ? { company } : {}),
+      ...(role !== undefined ? { role } : {}),
+      ...(input.stage !== undefined ? { stage: input.stage } : {}),
+      ...(jobUrl !== undefined ? { jobUrl } : {}),
+      ...(input.source !== undefined ? { source: input.source } : {}),
+      ...(input.location !== undefined ? { location: input.location } : {}),
+      ...(input.resumeLabel !== undefined
+        ? { resumeLabel: input.resumeLabel }
+        : {}),
+      ...(input.appliedAt !== undefined ? { appliedAt: input.appliedAt } : {}),
+      ...(input.applyBy !== undefined ? { applyBy: input.applyBy } : {}),
+      ...(input.nextAction !== undefined
+        ? { nextAction: input.nextAction }
+        : {}),
+      ...(input.nextActionAt !== undefined
+        ? { nextActionAt: input.nextActionAt }
+        : {}),
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.archived !== undefined ? { archived: input.archived } : {}),
+      notionPageId: meta.notionPageId,
+      notionLastEditedTime: meta.notionLastEditedTime,
+      notionSyncedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(applications.id, id))
+    .returning()
+    .get();
+  return toApplication(row!);
+}
+
+export function insertApplicationFromRemote(input: {
+  id?: string;
+  company: string;
+  role: string;
+  stage: Stage;
+  source: Application["source"];
+  jobUrl: string | null;
+  location: string | null;
+  resumeLabel: string | null;
+  appliedAt: number | null;
+  applyBy: number | null;
+  nextAction: string | null;
+  nextActionAt: number | null;
+  notes: string | null;
+  archived: boolean;
+  notionPageId: string;
+  notionLastEditedTime: string;
+}): Application {
+  const now = Date.now();
+  const id = input.id?.trim() || crypto.randomUUID();
+  const row = db
+    .insert(applications)
+    .values({
+      id,
+      company: trimRequired(input.company, "company"),
+      role: trimRequired(input.role, "role"),
+      stage: input.stage,
+      jobUrl: normalizeJobUrl(input.jobUrl) ?? null,
+      source: input.source,
+      location: input.location,
+      resumeLabel: input.resumeLabel,
+      appliedAt: input.appliedAt,
+      applyBy: input.applyBy,
+      nextAction: input.nextAction,
+      nextActionAt: input.nextActionAt,
+      notes: input.notes,
+      archived: input.archived,
+      createdAt: now,
+      updatedAt: now,
+      notionPageId: input.notionPageId,
+      notionLastEditedTime: input.notionLastEditedTime,
+      notionSyncedAt: now,
+    })
+    .returning()
+    .get();
+  return toApplication(row!);
+}
+
+export function setNotionLink(
+  id: string,
+  meta: {
+    notionPageId: string;
+    notionLastEditedTime: string;
+    notionSyncedAt: number;
+  },
+): void {
+  db.update(applications)
+    .set({
+      notionPageId: meta.notionPageId,
+      notionLastEditedTime: meta.notionLastEditedTime,
+      notionSyncedAt: meta.notionSyncedAt,
+    })
+    .where(eq(applications.id, id))
+    .run();
+}
+
+export function markNotionPageGone(id: string): Application {
+  const now = Date.now();
+  const row = db
+    .update(applications)
+    .set({
+      archived: true,
+      updatedAt: now,
+      notionSyncedAt: now,
+    })
+    .where(eq(applications.id, id))
+    .returning()
+    .get();
+  return toApplication(row!);
 }
 
 export function listNeedsAttention(): Application[] {
