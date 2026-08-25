@@ -133,4 +133,14 @@ describe("notion property map", () => {
     assert.equal(mapped.role, "Intern");
     assert.equal(mapped.stage, "wishlist");
   });
+
+  it("chunks rich text over Notion's 2000 character limit", () => {
+    const notes = "x".repeat(5189);
+    const properties = toNotionProperties({ ...application, notes }, "Name") as {
+      Notes: { rich_text: Array<{ text: { content: string } }> };
+    };
+    assert.equal(properties.Notes.rich_text.length, 3);
+    assert.equal(properties.Notes.rich_text[0]?.text.content.length, 2000);
+    assert.equal(properties.Notes.rich_text[2]?.text.content.length, 1189);
+  });
 });

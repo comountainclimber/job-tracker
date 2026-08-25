@@ -175,13 +175,26 @@ export function displayTitle(company: string, role: string): string {
   return `${company} — ${role}`;
 }
 
+const RICH_TEXT_LIMIT = 2000;
+
+function chunkRichText(value: string) {
+  const chunks: Array<{ type: "text"; text: { content: string } }> = [];
+  for (let index = 0; index < value.length; index += RICH_TEXT_LIMIT) {
+    chunks.push({
+      type: "text",
+      text: { content: value.slice(index, index + RICH_TEXT_LIMIT) },
+    });
+  }
+  return chunks;
+}
+
 function richTextProperty(value: string | null) {
   if (!value) return { rich_text: [] };
-  return { rich_text: [{ type: "text" as const, text: { content: value } }] };
+  return { rich_text: chunkRichText(value) };
 }
 
 function titleProperty(value: string) {
-  return { title: [{ type: "text" as const, text: { content: value } }] };
+  return { title: chunkRichText(value) };
 }
 
 function selectProperty(value: string | null) {
