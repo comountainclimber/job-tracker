@@ -32,11 +32,12 @@ import type {
   UpsertInput,
   UpsertResult,
 } from "@/lib/types";
-import { revalidatePath } from "next/cache";
+import { refresh as refreshClient, revalidatePath } from "next/cache";
 import { after } from "next/server";
 
 function refresh() {
   revalidatePath("/");
+  refreshClient();
 }
 
 export async function listApplications(

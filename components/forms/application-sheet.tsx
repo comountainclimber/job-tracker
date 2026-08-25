@@ -110,7 +110,7 @@ export function ApplicationSheet(props: {
     <Sheet open={open} onOpenChange={onOpenChange}>
       {application ? (
         <ApplicationSheetBody
-          key={application.id}
+          key={`${application.id}:${application.updatedAt}`}
           application={application}
           onOpenChange={onOpenChange}
         />

@@ -76,37 +76,33 @@ export function BoardApp({
     }
     let cancelled = false;
 
-    async function loadStatus() {
+    async function pull() {
       try {
-        const response = await fetch("/api/notion/sync");
-        const data = (await response.json()) as NotionSyncStatus;
+        const data = await syncNotionNow();
         if (!cancelled) setSyncStatus(data);
       } catch {
-        // Status is advisory.
+        // Keep the last status if a background sync fails.
       }
     }
 
-    void loadStatus();
+    void pull();
     const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/notion/sync", { method: "POST" });
-          const data = (await response.json()) as NotionSyncStatus;
-          if (!cancelled) {
-            setSyncStatus(data);
-            router.refresh();
-          }
-        } catch {
-          // Keep the last status if a background sync fails.
-        }
-      })();
+      void pull();
     }, SYNC_POLL_MS);
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void pull();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [notion.enabled, router]);
+  }, [notion.enabled]);
 
   async function handleSyncNow() {
     setIsSyncing(true);
