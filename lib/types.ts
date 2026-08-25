@@ -63,6 +63,28 @@ export type Application = {
   archived: boolean;
   createdAt: number;
   updatedAt: number;
+  notionPageId: string | null;
+};
+
+export type ApplicationSyncRow = Application & {
+  notionSyncedAt: number | null;
+  notionLastEditedTime: string | null;
+};
+
+export type NotionCredentialSource = "env" | "settings";
+
+export type NotionPublicSettings = {
+  enabled: boolean;
+  source: NotionCredentialSource | null;
+  tokenMasked: string | null;
+  databaseId: string | null;
+};
+
+export type NotionSyncStatus = {
+  enabled: boolean;
+  source: NotionCredentialSource | null;
+  lastSyncedAt: number | null;
+  error: string | null;
 };
 
 export type ListApplicationsQuery = {

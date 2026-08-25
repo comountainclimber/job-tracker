@@ -1,29 +1,47 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { KanbanBoard } from "@/components/board/kanban-board";
 import { AddApplicationDialog } from "@/components/forms/add-application-dialog";
 import { ApplicationSheet } from "@/components/forms/application-sheet";
+import { NotionSettingsDialog } from "@/components/forms/notion-settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { syncNotionNow } from "@/app/actions";
 import { isNeedsAttention } from "@/lib/attention";
-import type { Application } from "@/lib/types";
+import type { Application, NotionPublicSettings, NotionSyncStatus } from "@/lib/types";
+
+const SYNC_POLL_MS = 60_000;
+
+function formatSyncedAt(ms: number | null): string | null {
+  if (ms == null) return null;
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export function BoardApp({
   applications,
   archivedApplications,
+  notion,
 }: {
   applications: Application[];
   archivedApplications: Application[];
+  notion: NotionPublicSettings;
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [needsAttention, setNeedsAttention] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Application | null>(null);
+  const [syncStatus, setSyncStatus] = useState<NotionSyncStatus | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const attentionCount = useMemo(
     () => applications.filter((app) => isNeedsAttention(app)).length,
@@ -50,6 +68,63 @@ export function BoardApp({
       : [...applications, ...archivedApplications].find(
           (app) => app.id === selected.id,
         ) ?? selected;
+
+  useEffect(() => {
+    if (!notion.enabled) {
+      setSyncStatus(null);
+      return;
+    }
+    let cancelled = false;
+
+    async function pull() {
+      try {
+        const data = await syncNotionNow();
+        if (!cancelled) setSyncStatus(data);
+      } catch {
+        // Keep the last status if a background sync fails.
+      }
+    }
+
+    void pull();
+    const interval = window.setInterval(() => {
+      void pull();
+    }, SYNC_POLL_MS);
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void pull();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [notion.enabled]);
+
+  async function handleSyncNow() {
+    setIsSyncing(true);
+    try {
+      const result = await syncNotionNow();
+      setSyncStatus(result);
+      router.refresh();
+    } catch (err) {
+      setSyncStatus((current) => ({
+        enabled: notion.enabled,
+        source: notion.source,
+        lastSyncedAt: current?.lastSyncedAt ?? null,
+        error: err instanceof Error ? err.message : "Sync failed.",
+      }));
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  const syncedLabel = formatSyncedAt(
+    syncStatus?.lastSyncedAt ?? null,
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -90,6 +165,35 @@ export function BoardApp({
               Show archived
             </Label>
           </div>
+          <NotionSettingsDialog
+            key={`${notion.enabled}:${notion.source ?? ""}:${notion.databaseId ?? ""}`}
+            initial={notion}
+          />
+          {notion.enabled ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isSyncing}
+                onClick={() => {
+                  void handleSyncNow();
+                }}
+              >
+                {isSyncing ? "Syncing…" : "Sync now"}
+              </Button>
+              <p
+                className="max-w-40 truncate text-xs text-muted-foreground"
+                title={syncStatus?.error ?? undefined}
+              >
+                {syncStatus?.error
+                  ? syncStatus.error
+                  : syncedLabel
+                    ? `Synced ${syncedLabel}`
+                    : "Not synced yet"}
+              </p>
+            </>
+          ) : null}
           <AddApplicationDialog />
         </div>
       </header>

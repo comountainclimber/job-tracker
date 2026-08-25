@@ -13,6 +13,38 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Notion
+
+Optional two-way sync. The board, HTTP API, and MCP stay local-first. SQLite is the source of truth; Notion is a replica you can connect from the **Notion** button in the header.
+
+```mermaid
+flowchart LR
+  UI[Board UI]
+  API[HTTP API]
+  MCP[MCP server]
+  SQLite[(SQLite)]
+  Sync[lib/notion/sync]
+  Notion[Notion data source]
+
+  UI --> SQLite
+  API --> SQLite
+  MCP --> SQLite
+  SQLite -->|"after local write"| Sync
+  Sync -->|"pages.create / pages.update"| Notion
+  Sync -->|"dataSources.query"| Notion
+  Notion -->|"reconcile into rows"| SQLite
+```
+
+Setup from the UI:
+
+1. Create an [internal integration](https://www.notion.so/my-integrations) and copy the secret.
+2. Create or open a Notion database and share it with the integration (**••• → Connections**).
+3. Paste the token and database ID (or the database URL) into the dialog and **Connect**.
+
+You can also set `NOTION_TOKEN` and `NOTION_DATABASE_ID` in the environment; those override the UI. Disconnect in the dialog (or unset the env vars) to go back to local-only. Existing SQLite rows are kept.
+
+Agents can call `sync_notion` when connected. `POST /api/notion/sync` runs the same reconcile.
+
 ## MCP (agents)
 
 Cursor is already wired via `.cursor/mcp.json`. From this repo:

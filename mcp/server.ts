@@ -13,6 +13,8 @@ import {
   upsertApplication,
   upsertApplications,
 } from "../lib/applications";
+import { isNotionEnabled } from "../lib/notion/config";
+import { reconcileAll } from "../lib/notion/sync";
 import { SOURCES, STAGES } from "../lib/types";
 
 const stageSchema = z.enum(STAGES);
@@ -251,6 +253,27 @@ server.registerTool(
       deleteApplication(id);
       return { ok: true, id };
     }),
+);
+
+server.registerTool(
+  "sync_notion",
+  {
+    description:
+      "Two-way sync with Notion when connected (token + database ID in the board UI or env). No-op report if Notion is not connected. Pushes local writes and pulls remote edits.",
+  },
+  async () => {
+    try {
+      if (!isNotionEnabled()) {
+        return jsonResult({
+          enabled: false,
+          error: "Notion is not connected.",
+        });
+      }
+      return jsonResult(await reconcileAll());
+    } catch (err) {
+      return toolError(err);
+    }
+  },
 );
 
 async function main() {

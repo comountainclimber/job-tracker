@@ -11,18 +11,33 @@ import {
   updateApplication as updateApplicationRecord,
   upsertApplication as upsertApplicationRecord,
 } from "@/lib/applications";
+import { formatNotionError, resetNotionClient } from "@/lib/notion/client";
+import {
+  getNotionCredentials,
+  getNotionPublicSettings,
+  SETTING_DATABASE_ID,
+  SETTING_LAST_SYNC_ERROR,
+  SETTING_TOKEN,
+} from "@/lib/notion/config";
+import { parseNotionDatabaseId } from "@/lib/notion/map";
+import { connectNotion, reconcileAll } from "@/lib/notion/sync";
+import { deleteSetting, setSetting } from "@/lib/settings";
 import type {
   Application,
   ListApplicationsQuery,
+  NotionPublicSettings,
+  NotionSyncStatus,
   Stage,
   UpdateInput,
   UpsertInput,
   UpsertResult,
 } from "@/lib/types";
-import { revalidatePath } from "next/cache";
+import { refresh as refreshClient, revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 function refresh() {
   revalidatePath("/");
+  refreshClient();
 }
 
 export async function listApplications(
@@ -83,4 +98,59 @@ export async function deleteApplication(id: string): Promise<void> {
 
 export async function listNeedsAttention(): Promise<Application[]> {
   return listNeedsAttentionRecord();
+}
+
+export async function getNotionSettings(): Promise<NotionPublicSettings> {
+  return getNotionPublicSettings();
+}
+
+export async function saveNotionSettings(input: {
+  token: string;
+  databaseId: string;
+}): Promise<NotionPublicSettings> {
+  const credentials = getNotionCredentials();
+  if (credentials?.source === "env") {
+    throw new Error(
+      "Notion is configured via environment variables. Remove NOTION_TOKEN and NOTION_DATABASE_ID to use the UI.",
+    );
+  }
+  const token = input.token.trim();
+  if (!token) {
+    throw new Error("Integration token is required.");
+  }
+  const databaseId = parseNotionDatabaseId(input.databaseId);
+  try {
+    await connectNotion(token, databaseId);
+  } catch (err) {
+    throw new Error(formatNotionError(err));
+  }
+  setSetting(SETTING_TOKEN, token);
+  setSetting(SETTING_DATABASE_ID, databaseId);
+  resetNotionClient();
+  after(() => {
+    void reconcileAll();
+  });
+  refresh();
+  return getNotionPublicSettings();
+}
+
+export async function disconnectNotion(): Promise<NotionPublicSettings> {
+  const credentials = getNotionCredentials();
+  if (credentials?.source === "env") {
+    throw new Error(
+      "Notion is configured via environment variables. Remove NOTION_TOKEN and NOTION_DATABASE_ID to disconnect.",
+    );
+  }
+  deleteSetting(SETTING_TOKEN);
+  deleteSetting(SETTING_DATABASE_ID);
+  deleteSetting(SETTING_LAST_SYNC_ERROR);
+  resetNotionClient();
+  refresh();
+  return getNotionPublicSettings();
+}
+
+export async function syncNotionNow(): Promise<NotionSyncStatus> {
+  const result = await reconcileAll();
+  refresh();
+  return result;
 }

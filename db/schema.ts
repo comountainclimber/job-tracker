@@ -21,12 +21,24 @@ export const applications = sqliteTable(
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    notionPageId: text("notion_page_id"),
+    notionSyncedAt: integer("notion_synced_at"),
+    notionLastEditedTime: text("notion_last_edited_time"),
   },
   (t) => [
     uniqueIndex("applications_job_url_unique")
       .on(t.jobUrl)
       .where(isNotNull(t.jobUrl)),
+    uniqueIndex("applications_notion_page_id_unique")
+      .on(t.notionPageId)
+      .where(isNotNull(t.notionPageId)),
   ],
 );
 
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
 export type ApplicationRow = typeof applications.$inferSelect;
+export type SettingRow = typeof settings.$inferSelect;
