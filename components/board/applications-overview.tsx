@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { calculateAnalytics, type AnalyticsGroup, type AnalyticsHistory, type AnalyticsPeriod } from "@/lib/analytics";
-import { STAGE_LABELS, type Application } from "@/lib/types";
+import { calculateAnalytics, type Analytics, type AnalyticsGroup, type AnalyticsHistory, type AnalyticsPeriod } from "@/lib/analytics";
+import { STAGE_LABELS, type Application, type Stage } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -13,6 +13,19 @@ const PERIODS: { value: AnalyticsPeriod; label: string }[] = [
   { value: "30", label: "Last 30 days" },
   { value: "90", label: "Last 90 days" },
 ];
+
+type SummaryMetric = "totalApplied" | "screenings" | "interviews" | "rejections" | "active" | "offers" | "followUpsDue";
+type Inspection =
+  | { kind: "summary"; metric: SummaryMetric }
+  | { kind: "week"; start: number }
+  | { kind: "stage"; stage: Stage };
+
+function inspectedGroup(analytics: Analytics, inspection: Inspection | null): AnalyticsGroup | null {
+  if (inspection == null) return null;
+  if (inspection.kind === "summary") return analytics[inspection.metric];
+  if (inspection.kind === "week") return analytics.weeks.find((week) => week.start === inspection.start) ?? null;
+  return analytics.stages.find((stage) => stage.stage === inspection.stage) ?? null;
+}
 
 function currentStatus(app: Application): { label: string; variant: "secondary" | "destructive" | "outline" } {
   if (app.stage === "rejected") return { label: "Rejected", variant: "destructive" };
@@ -60,20 +73,22 @@ export function ApplicationsOverview({ applications, history, onSelect }: {
 }) {
   const [period, setPeriod] = useState<AnalyticsPeriod>("all");
   const [collapsed, setCollapsed] = useState(false);
-  const [inspection, setInspection] = useState<AnalyticsGroup | null>(null);
+  const [inspection, setInspection] = useState<Inspection | null>(null);
   const analytics = useMemo(() => calculateAnalytics(applications, history, period), [applications, history, period]);
-  const matches = inspection?.ids.map((id) => applications.find((app) => app.id === id)).filter((app): app is Application => app != null) ?? [];
+  const inspectionGroup = inspectedGroup(analytics, inspection);
+  const applicationsById = new Map(applications.map((app) => [app.id, app]));
+  const matches = inspectionGroup?.ids.map((id) => applicationsById.get(id)).filter((app): app is Application => app != null) ?? [];
   const maxWeek = Math.max(1, ...analytics.weeks.map((week) => week.count));
   const maxStage = Math.max(1, ...analytics.stages.map((stage) => stage.count));
   const cards = [
-    { group: analytics.totalApplied, caption: "Submitted applications" },
-    { group: analytics.screenings, caption: "Reached screening" },
-    { group: analytics.interviews, caption: "Reached interview" },
-    { group: analytics.rejections, caption: "Rejection recorded" },
+    { metric: "totalApplied" as const, group: analytics.totalApplied, caption: "Submitted applications" },
+    { metric: "screenings" as const, group: analytics.screenings, caption: "Reached screening" },
+    { metric: "interviews" as const, group: analytics.interviews, caption: "Reached interview" },
+    { metric: "rejections" as const, group: analytics.rejections, caption: "Rejection recorded" },
   ];
 
-  function inspect(group: AnalyticsGroup) {
-    setInspection(group);
+  function inspect(selection: Inspection) {
+    setInspection(selection);
     setCollapsed(false);
   }
 
@@ -95,14 +110,17 @@ export function ApplicationsOverview({ applications, history, onSelect }: {
           {PERIODS.map((option) => <Button key={option.value} type="button" size="sm" variant={period === option.value ? "default" : "outline"} aria-pressed={period === option.value} onClick={() => { setPeriod(option.value); setInspection(null); }}>{option.label}</Button>)}
         </div>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          {cards.map(({ group, caption }) => <button key={group.label} type="button" className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={() => inspect(group)} aria-label={`${group.label}: ${group.count}. View matching applications`}>
+          {cards.map(({ metric, group, caption }) => <button key={metric} type="button" className="rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={() => inspect({ kind: "summary", metric })} aria-label={`${group.label}: ${group.count}. View matching applications`}>
             <span className="block text-2xl font-semibold tabular-nums sm:text-3xl">{group.count}</span>
             <span className="block text-sm font-medium">{group.label}</span>
             <span className="block text-xs text-muted-foreground">{caption}</span>
           </button>)}
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {[analytics.active, analytics.offers, analytics.followUpsDue].map((group) => <button key={group.label} type="button" className="hover:underline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => inspect(group)}>{group.label} <strong className="font-medium text-foreground">{group.count}</strong></button>)}
+          {(["active", "offers", "followUpsDue"] as const).map((metric) => {
+            const group = analytics[metric];
+            return <button key={metric} type="button" className="hover:underline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => inspect({ kind: "summary", metric })}>{group.label} <strong className="font-medium text-foreground">{group.count}</strong></button>;
+          })}
         </div>
         <Tooltip.Provider delayDuration={150}>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -111,7 +129,7 @@ export function ApplicationsOverview({ applications, history, onSelect }: {
             <div className="flex h-28 items-end gap-1" role="group" aria-label="Submitted applications by week for the last 12 weeks">
               {analytics.weeks.map((week) => <Tooltip.Root key={week.start}>
                 <Tooltip.Trigger asChild>
-                  <button type="button" aria-label={`Week of ${week.label}: ${week.count} applications. View matching applications`} className="group flex h-full min-w-0 flex-1 flex-col justify-end gap-1 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => inspect(week)}>
+                  <button type="button" aria-label={`Week of ${week.label}: ${week.count} applications. View matching applications`} className="group flex h-full min-w-0 flex-1 flex-col justify-end gap-1 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => inspect({ kind: "week", start: week.start })}>
                     <span className="block min-h-1 rounded-t bg-primary/75 group-hover:bg-primary" style={{ height: `${Math.max(4, (week.count / maxWeek) * 88)}%` }} />
                     <span className="truncate text-center text-[10px] text-muted-foreground">{week.label}</span>
                   </button>
@@ -125,7 +143,7 @@ export function ApplicationsOverview({ applications, history, onSelect }: {
             <div className="space-y-1" role="group" aria-label="Current stages for the selected submission period">
               {analytics.stages.map((stage) => <Tooltip.Root key={stage.stage}>
                 <Tooltip.Trigger asChild>
-                  <button type="button" className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring" aria-label={`${stage.label}: ${stage.count}. View matching applications`} onClick={() => inspect(stage)}>
+                  <button type="button" className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring" aria-label={`${stage.label}: ${stage.count}. View matching applications`} onClick={() => inspect({ kind: "stage", stage: stage.stage })}>
                     <span className="w-20 shrink-0 text-xs">{stage.label}</span>
                     <span className="h-2 flex-1 rounded bg-muted"><span className="block h-full rounded bg-primary/75" style={{ width: `${(stage.count / maxStage) * 100}%` }} /></span>
                     <span className="w-6 text-right text-xs tabular-nums">{stage.count}</span>
@@ -138,8 +156,8 @@ export function ApplicationsOverview({ applications, history, onSelect }: {
         </div>
         </Tooltip.Provider>
         <p className="text-xs text-muted-foreground">Milestone history starts with each existing application’s known stage; earlier screenings and interviews may be missing. {analytics.dateMissing} submitted {analytics.dateMissing === 1 ? "application has" : "applications have"} an application date missing and {analytics.dateMissing === 1 ? "is" : "are"} excluded from dated views. {analytics.withdrawnBeforeApplying} {analytics.withdrawnBeforeApplying === 1 ? "lead was" : "leads were"} withdrawn before applying; {analytics.withdrawnBeforeApplying === 1 ? "it appears" : "they appear"} in the all-time Withdrawn bar but not submission totals or dated cohorts.</p>
-        {inspection && <div className="rounded-lg border border-border p-3" aria-live="polite">
-          <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{inspection.label} · {matches.length}</h3><Button type="button" size="sm" variant="ghost" onClick={() => setInspection(null)}>Close</Button></div>
+        {inspectionGroup && <div className="rounded-lg border border-border p-3" aria-live="polite">
+          <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-medium">{inspectionGroup.label} · {matches.length}</h3><Button type="button" size="sm" variant="ghost" onClick={() => setInspection(null)}>Close</Button></div>
           {matches.length === 0 ? <p className="mt-1 text-xs text-muted-foreground">No matching applications.</p> : <div className="mt-2 max-h-40 space-y-1 overflow-auto">{matches.map((app) => {
             const status = currentStatus(app);
             return <button key={app.id} type="button" className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring" onClick={() => onSelect(app)}>
