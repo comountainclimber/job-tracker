@@ -31,23 +31,31 @@ function formatSyncedAt(ms: number | null): string | null {
 export function BoardApp({
   applications,
   archivedApplications,
-  overviewApplications,
-  stageHistory,
+  overviewApplications: providedOverviewApplications,
+  stageHistory: providedStageHistory,
   notion,
 }: {
   applications: Application[];
   archivedApplications: Application[];
-  overviewApplications: Application[];
-  stageHistory: AnalyticsHistory[];
+  overviewApplications?: Application[];
+  stageHistory?: AnalyticsHistory[];
   notion: NotionPublicSettings;
 }) {
   const router = useRouter();
+  const overviewApplications = providedOverviewApplications ?? [...applications, ...archivedApplications];
+  const stageHistory = providedStageHistory ?? [];
   const [query, setQuery] = useState("");
   const [needsAttention, setNeedsAttention] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Application | null>(null);
   const [syncStatus, setSyncStatus] = useState<NotionSyncStatus | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    if (providedOverviewApplications == null || providedStageHistory == null) {
+      router.refresh();
+    }
+  }, [providedOverviewApplications, providedStageHistory, router]);
 
   const attentionCount = useMemo(
     () => applications.filter((app) => isNeedsAttention(app)).length,
