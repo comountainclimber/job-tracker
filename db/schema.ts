@@ -40,5 +40,12 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
 });
 
+export const applicationStageHistory = sqliteTable("application_stage_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  applicationId: text("application_id").notNull(),
+  stage: text("stage").notNull().$type<Stage>(),
+  recordedAt: integer("recorded_at").notNull(),
+});
+
 export type ApplicationRow = typeof applications.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;

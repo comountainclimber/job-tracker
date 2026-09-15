@@ -1,5 +1,5 @@
-import { and, desc, eq, ne, or, sql } from "drizzle-orm";
-import { applications, db } from "../db";
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { applicationStageHistory, applications, db } from "../db";
 import type { ApplicationRow } from "../db/schema";
 import { isNeedsAttention } from "./attention";
 import {
@@ -497,6 +497,35 @@ export function insertApplicationFromRemote(input: {
     .returning()
     .get();
   return toApplication(row!);
+}
+
+export function listStageHistory(): { applicationId: string; stage: Stage }[] {
+  return db.select({ applicationId: applicationStageHistory.applicationId, stage: applicationStageHistory.stage })
+    .from(applicationStageHistory).all();
+}
+
+export function recordReachedMilestone(id: string, stage: "screening" | "interview"): void {
+  if (stage !== "screening" && stage !== "interview") {
+    throw new Error("Only screening and interview can be marked as earlier milestones.");
+  }
+  const application = requireApplication(id);
+  if ((application.stage === "wishlist" || application.stage === "withdrawn") && application.appliedAt == null) {
+    const priorSubmission = db.select({ id: applicationStageHistory.id })
+      .from(applicationStageHistory)
+      .where(and(
+        eq(applicationStageHistory.applicationId, id),
+        inArray(applicationStageHistory.stage, ["applied", "screening", "interview", "offer", "rejected"]),
+      )).get();
+    if (!priorSubmission) {
+      throw new Error("Submit the application before recording a milestone.");
+    }
+  }
+  const alreadyRecorded = db.select({ id: applicationStageHistory.id })
+    .from(applicationStageHistory)
+    .where(and(eq(applicationStageHistory.applicationId, id), eq(applicationStageHistory.stage, stage)))
+    .get();
+  if (alreadyRecorded) return;
+  db.insert(applicationStageHistory).values({ applicationId: id, stage, recordedAt: Date.now() }).run();
 }
 
 export function setNotionLink(

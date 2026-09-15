@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { KanbanBoard } from "@/components/board/kanban-board";
+import { ApplicationsOverview } from "@/components/board/applications-overview";
 import { AddApplicationDialog } from "@/components/forms/add-application-dialog";
 import { ApplicationSheet } from "@/components/forms/application-sheet";
 import { NotionSettingsDialog } from "@/components/forms/notion-settings-dialog";
@@ -14,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { syncNotionNow } from "@/app/actions";
 import { isNeedsAttention } from "@/lib/attention";
+import type { AnalyticsHistory } from "@/lib/analytics";
 import type { Application, NotionPublicSettings, NotionSyncStatus } from "@/lib/types";
 
 const SYNC_POLL_MS = 60_000;
@@ -29,10 +31,14 @@ function formatSyncedAt(ms: number | null): string | null {
 export function BoardApp({
   applications,
   archivedApplications,
+  overviewApplications,
+  stageHistory,
   notion,
 }: {
   applications: Application[];
   archivedApplications: Application[];
+  overviewApplications: Application[];
+  stageHistory: AnalyticsHistory[];
   notion: NotionPublicSettings;
 }) {
   const router = useRouter();
@@ -79,7 +85,10 @@ export function BoardApp({
     async function pull() {
       try {
         const data = await syncNotionNow();
-        if (!cancelled) setSyncStatus(data);
+        if (!cancelled) {
+          setSyncStatus(data);
+          router.refresh();
+        }
       } catch {
         // Keep the last status if a background sync fails.
       }
@@ -102,7 +111,7 @@ export function BoardApp({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [notion.enabled]);
+  }, [notion.enabled, router]);
 
   async function handleSyncNow() {
     setIsSyncing(true);
@@ -197,15 +206,19 @@ export function BoardApp({
           <AddApplicationDialog />
         </div>
       </header>
-      <div className="min-h-0 flex-1 p-3">
-        <KanbanBoard
-          applications={visible}
-          showArchivedColumns={showArchived}
-          onSelect={setSelected}
-        />
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <ApplicationsOverview applications={overviewApplications} history={stageHistory} onSelect={setSelected} />
+        <div className="mt-3 h-[65vh] min-h-[24rem]">
+          <KanbanBoard
+            applications={visible}
+            showArchivedColumns={showArchived}
+            onSelect={setSelected}
+          />
+        </div>
       </div>
       <ApplicationSheet
         application={selectedFresh}
+        reachedStages={stageHistory.filter((event) => event.applicationId === selectedFresh?.id).map((event) => event.stage)}
         open={selectedFresh !== null}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
