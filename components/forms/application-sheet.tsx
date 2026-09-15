@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import {
   archiveApplication,
   deleteApplication,
+  recordReachedMilestone,
   updateApplication,
 } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
@@ -101,10 +102,11 @@ function formFromApplication(application: Application): SheetForm {
 
 export function ApplicationSheet(props: {
   application: Application | null;
+  reachedStages: Stage[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { application, open, onOpenChange } = props;
+  const { application, reachedStages, open, onOpenChange } = props;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -112,6 +114,7 @@ export function ApplicationSheet(props: {
         <ApplicationSheetBody
           key={`${application.id}:${application.updatedAt}`}
           application={application}
+          reachedStages={reachedStages}
           onOpenChange={onOpenChange}
         />
       ) : null}
@@ -121,9 +124,11 @@ export function ApplicationSheet(props: {
 
 function ApplicationSheetBody({
   application,
+  reachedStages,
   onOpenChange,
 }: {
   application: Application;
+  reachedStages: Stage[];
   onOpenChange: (open: boolean) => void;
 }) {
   const [form, setForm] = useState<SheetForm>(() =>
@@ -194,6 +199,18 @@ function ApplicationSheetBody({
             ? "Could not archive application."
             : "Could not unarchive application.",
       );
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  async function handleMilestone(stage: "screening" | "interview") {
+    setFormError(null);
+    setIsPending(true);
+    try {
+      await recordReachedMilestone(application.id, stage);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Could not record milestone.");
     } finally {
       setIsPending(false);
     }
@@ -437,6 +454,18 @@ function ApplicationSheetBody({
               className="min-h-20"
               onChange={(event) => patch("notes", event.target.value)}
             />
+          </div>
+          <div className="grid gap-1.5 rounded-lg border border-border px-2.5 py-2">
+            <span className="text-sm font-medium">Earlier milestones</span>
+            <p className="text-xs text-muted-foreground">Record a screening or interview that happened before stage history began.</p>
+            <div className="flex flex-wrap gap-2">
+              {(["screening", "interview"] as const).map((stage) => {
+                const reached = reachedStages.includes(stage) || application.stage === stage;
+                return <Button key={stage} type="button" size="sm" variant="outline" disabled={isPending || reached} onClick={() => { void handleMilestone(stage); }}>
+                  {reached ? `${STAGE_LABELS[stage]} recorded` : `Mark ${STAGE_LABELS[stage]} reached`}
+                </Button>;
+              })}
+            </div>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-2.5 py-2">
             <div className="grid gap-0.5">

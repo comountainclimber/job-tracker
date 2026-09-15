@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/.pnpm-store/
 /.pnp
 .pnp.*
 .yarn/*
@@ -32,6 +33,9 @@ yarn-error.log*
 
 # local sqlite (application data — never commit)
 /data
+
+# local working plans
+/.private/plans/
 
 # env files (can opt-in for committing if needed)
 .env*

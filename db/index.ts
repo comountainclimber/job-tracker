@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS settings (
   key text primary key,
   value text not null
 );
+CREATE TABLE IF NOT EXISTS application_stage_history (
+  id integer primary key autoincrement,
+  application_id text not null references applications(id) on delete cascade,
+  stage text not null,
+  recorded_at integer not null
+);
+CREATE INDEX IF NOT EXISTS application_stage_history_application_id ON application_stage_history(application_id);
 `;
 
 function columnNames(sqlite: Database.Database, table: string): Set<string> {
@@ -78,6 +85,23 @@ function migrate(sqlite: Database.Database) {
   sqlite.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS applications_notion_page_id_unique ON applications(notion_page_id) WHERE notion_page_id IS NOT NULL`,
   );
+  sqlite.exec(`INSERT INTO application_stage_history (application_id, stage, recorded_at)
+    SELECT a.id, a.stage, a.updated_at FROM applications a
+    WHERE NOT EXISTS (SELECT 1 FROM application_stage_history h WHERE h.application_id = a.id)`);
+  sqlite.exec(`
+    CREATE TRIGGER IF NOT EXISTS applications_stage_insert AFTER INSERT ON applications BEGIN
+      INSERT INTO application_stage_history (application_id, stage, recorded_at)
+      VALUES (NEW.id, NEW.stage, NEW.updated_at);
+    END;
+    CREATE TRIGGER IF NOT EXISTS applications_stage_update AFTER UPDATE OF stage ON applications
+    WHEN OLD.stage != NEW.stage BEGIN
+      INSERT INTO application_stage_history (application_id, stage, recorded_at)
+      VALUES (NEW.id, NEW.stage, NEW.updated_at);
+    END;
+    CREATE TRIGGER IF NOT EXISTS applications_stage_delete AFTER DELETE ON applications BEGIN
+      DELETE FROM application_stage_history WHERE application_id = OLD.id;
+    END;
+  `);
 }
 
 function bootstrap(sqlite: Database.Database) {
@@ -105,5 +129,5 @@ function createDb(): AppDatabase {
 }
 
 export const db = createDb();
-export { applications, settings } from "./schema";
+export { applications, applicationStageHistory, settings } from "./schema";
 export type { ApplicationRow, SettingRow } from "./schema";

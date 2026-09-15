@@ -1,4 +1,4 @@
-import { listApplications } from "@/lib/applications";
+import { listApplications, listStageHistory } from "@/lib/applications";
 import { BoardApp } from "@/app/board-app";
 import { getNotionPublicSettings, isNotionEnabled } from "@/lib/notion/config";
 import { reconcileAll } from "@/lib/notion/sync";
@@ -20,6 +20,8 @@ export default function Home() {
     <BoardApp
       applications={applications}
       archivedApplications={archivedApplications}
+      overviewApplications={[...applications, ...archivedApplications]}
+      stageHistory={listStageHistory()}
       notion={getNotionPublicSettings()}
     />
   );

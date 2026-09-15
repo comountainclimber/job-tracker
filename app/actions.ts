@@ -7,6 +7,7 @@ import {
   listApplications as listApplicationsRecord,
   listNeedsAttention as listNeedsAttentionRecord,
   moveApplication as moveApplicationRecord,
+  recordReachedMilestone as recordReachedMilestoneRecord,
   searchApplications as searchApplicationsRecord,
   updateApplication as updateApplicationRecord,
   upsertApplication as upsertApplicationRecord,
@@ -80,6 +81,14 @@ export async function moveApplication(
   const application = moveApplicationRecord(id, stage);
   refresh();
   return application;
+}
+
+export async function recordReachedMilestone(
+  id: string,
+  stage: "screening" | "interview",
+): Promise<void> {
+  recordReachedMilestoneRecord(id, stage);
+  refresh();
 }
 
 export async function archiveApplication(
